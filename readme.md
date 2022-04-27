@@ -1,7 +1,6 @@
-# Tinygrad
+# Nograd
 
 It is the smallest and most stupid ~~deep~~ learning framework.
-
 
 Authors (team):
 - Bohdan Hlovatskyi: https://github.com/bohdanhlovatskyi
