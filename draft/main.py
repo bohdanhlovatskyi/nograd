@@ -5,10 +5,12 @@ import torch
 
 import mnist
 
+DISPLAY_GRAPH = False
+
 class Tensor:
 
     def __init__(self, data, requires_grad: bool = False, depends_on = None) -> None:
-        self.data = data
+        self.data = np.float64(data)
         self.requires_grad = requires_grad
         self.depends_on = depends_on if depends_on else []
         self.grad: 'Tensor' = None
@@ -24,14 +26,16 @@ class Tensor:
 
     def backward(self, grad: 'Tensor' = None):
 
-        if grad is None:
+        if grad is None or not grad.data.any():
             grad = Tensor(np.ones(self.data.shape))
         
 
-        self.grad.data = self.grad.data + grad.data
+        self.grad.data += grad.data
         
         for dep in self.depends_on:
             backward_grad = dep.backward(grad.data)
+            if DISPLAY_GRAPH:
+                print(dep.backward.__name__)
             dep.ctx.backward(Tensor(backward_grad))
 
     def __str__(self) -> str:
@@ -52,6 +56,12 @@ class Tensor:
     def softmax(self) -> 'Tensor':
         return _softmax(self)
 
+    def mse(self, other) -> 'Tensor':
+        return _MSE(self, other)
+
+    def sigmoid(self) -> 'Tensor':
+        return _sigmoid(self)
+
     def mean(self):
         return _mean(self)
     
@@ -65,7 +75,6 @@ class Func:
         self.backward = op
 
 def _matmul(t1: 'Tensor', t2: 'Tensor') -> 'Tensor':
-    print(t1.shape, t2.shape)
     data = t1.data @ t2.data
     if data.shape == ():
         data = np.array([data]).reshape((1, 1))
@@ -90,7 +99,8 @@ def _relu(t: 'Tensor') -> 'Tensor':
 
     if t.requires_grad:
         def relu_fn(grad: np.ndarray):
-            return grad * (data >= 0)
+            tmp = grad * (data >= 0)
+            return tmp
         
         depends_on.append(Func(t, relu_fn))
     
@@ -101,8 +111,8 @@ def _softmax(t: 'Tensor') -> 'Tensor':
     max_value = np.max(t.data)
     temp = t.data - max_value
     data = np.exp(temp)
-    divide_by = np.sum(temp)
-    data = temp / divide_by
+    divide_by = np.sum(data)
+    data = data / divide_by
     depends_on = []
 
     if t.requires_grad:
@@ -126,16 +136,43 @@ def _mean(t: 'Tensor') -> 'Tensor':
     return Tensor(data, t.requires_grad, depends_on)
 
 def _cross_entropy(t1: 'Tensor', t2: 'Tensor') -> 'Tensor':
-    data = - np.mean((t2.data * np.log(t1.data) + (1-t2.data) * np.log(1-t1.data)))
+    delta = 0.0001
+    data = - np.mean((t2.data.T * np.log(t1.data+delta) + (1-t2.data).T * np.log(1-t1.data+delta)))
     depends_on = []
     if t1.requires_grad:
         def cross_entropy_fn(grad: np.ndarray):
-            print(grad.shape, t1.shape, t2.shape)
-            temp = t2.data / t1.data.T - (1 - t2.data) / (1 - t1.data).T
-            return -grad * temp / t1.shape[1]
+            temp = t2.data.T / (t1.data+delta) - (1 - t2.data).T / (1 - t1.data + delta)
+            return -data*grad*temp
         
         depends_on.append(Func(t1, cross_entropy_fn))
     return Tensor(data, t1.requires_grad, depends_on)
+
+def _MSE(t1: 'Tensor', t2: 'Tensor') -> 'Tensor':
+    temp = t2.data.T - t1.data
+    data = np.mean(temp * temp)
+    depends_on = []
+
+    if t1.requires_grad:
+        def MSE_fn(grad: np.ndarray):
+            return -2*grad*temp/t1.shape[1]
+
+        depends_on.append(Func(t1, MSE_fn))
+    
+    return Tensor(data, t1.requires_grad, depends_on)
+
+
+def _sigmoid(t: 'Tensor') -> 'Tensor':
+    sig = lambda x: 1 / (1 + np.exp(-x))
+    data = sig(t.data)
+    depends_on = []
+
+    if t.requires_grad:
+        def sigmoid_fn(grad: np.ndarray):
+            return grad * data * (1 - data)
+        
+        depends_on.append(Func(t, sigmoid_fn))
+    
+    return Tensor(data, t.requires_grad, depends_on)
 
 class SGD:
     def __init__(self, params, lr: float = 0.01) -> None:
@@ -156,7 +193,7 @@ class Net:
     self.l2 = Tensor(np.random.rand(128, 10), requires_grad=True)
 
   def forward(self, x: 'Tensor'):
-    return x.dot(self.l1).relu().dot(self.l2).softmax()
+    return x.dot(self.l1).relu().dot(self.l2).sigmoid()
 
 
 def example():
@@ -186,31 +223,84 @@ def example():
     print(a.grad)
     print(b.grad)
 
+
+def test():
+    x, y = np.array([1, 0, 0, 0, 1.]).reshape((1, 5)), np.array([1., 0.]).reshape((1, 2))
+    X, Y = Tensor(x), Tensor(y)
+    x, y = torch.Tensor(x), torch.Tensor(y)
+
+    lll = np.random.rand(5, 4)
+    L1 = Tensor(lll, requires_grad=True)
+    l1 = torch.Tensor(lll)
+
+    lllll = np.random.rand(4, 2)
+    L2 = Tensor(lllll, requires_grad=True)
+    l2 = torch.Tensor(lllll)
+    
+    x = x @ l1
+    print("torch: ", x)
+    X = Tensor(X.data @ L1.data)
+    print("our: ", X.data)
+
+    x = torch.relu(x)
+    print("torch", x)
+    X = X.relu()
+    print("our: ", X.data)
+
+    x = x @ l2
+    print("torch: ", x)
+    X = Tensor(X.data @ L2.data)
+    print("our: ", X.data)    
+
+
+    ''' softmax is ok
+    x = torch.softmax(x, dim=1)
+    print("torch: ", x)
+    X = X.softmax()
+    print("out: ", X.data)
+    '''
+
+    x = torch.sigmoid(x)
+    print("torch: ", x)
+    X = X.sigmoid()
+    print("out: ", X.data)
+
+    loss = torch.nn.MSELoss()
+    print("torch: ", loss(x, y))
+    print("our: ", X.mse(Y))
+
+    print()
+
 if __name__ == "__main__":
     # load dataset
     # mnist.init()
-    
+
     Xt, yt, Xv, Yv = mnist.load()
 
-    # create model
+    # create models
     model = Net()
-    optim = SGD([model.l1, model.l2], lr=0.001)
+    optim = SGD([model.l1, model.l2], lr=0.0001)
 
     # train loop
     iteration = 0
     for x, yv in zip(Xt, yt):
         x, y = Tensor(x.reshape(1, 784)),\
                Tensor(np.eye(10)[yv, :].reshape(10, 1))
+        
+        x.data /= 255.
         out = model.forward(x)
-        loss = out.cross_entropy(y)
+
+        loss = out.mse(y)
         assert loss.requires_grad
 
         print(iteration, loss)
-        optim.zero_grad()
+        if iteration == 0:
+            optim.zero_grad()
         loss.backward()
         optim.step()
         iteration += 1
-        if iteration == 100:
+        
+        if iteration == 20:
             break
 
     iteration = 0
@@ -218,7 +308,7 @@ if __name__ == "__main__":
         x, y = Tensor(x.reshape(1, 784)),\
                Tensor(np.eye(10)[yv, :].reshape(10, 1))
         out = model.forward(x)
-        print("prediction: ", out)
+        print("prediction: ", out, np.argmax(out))
         plt.imshow(x.data.reshape(28, 28))
         plt.show()
         iteration += 1
