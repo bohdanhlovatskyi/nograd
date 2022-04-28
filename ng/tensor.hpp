@@ -3,36 +3,31 @@
 
 #include <Eigen/Dense>
 
+#include <vector>
+
 namespace ng {
     class Tensor {
     private:
         Eigen::MatrixXd data;
-        Eigen::MatrixXd grad;
-
+        Tensor *grad;
+        std::vector<Function> depends_on;
         bool requires_grad;
-        Context ctx;
 
     public:
-        Tensor(Eigen::MatrixXd data): data{data}, grad{nullptr}, ctx{nullptr} {};
-
-        void backward() {
-            if (ctx == nullptr) {
-                return
+        inline Tensor(Eigen::MatrixXd data, bool requires_grad = false) : \
+                         data{data}, grad{nullptr}, ctx{nullptr},
+                         requires_grad{requires_grad} {
+            if (requires_grad) {
+                zero_grad();
             }
+        };
 
-            if (self.grad == nullptr) {
-                // make self grad consist of zeroes with input data shape
-            }
-
-            auto grads = ctx.backward(ctx, grad);
-
+        inline void zero_grad() {
+            grad = Tensor(Eigen::MatrixXd{data.rows(), data.cols()}.Zero());
         }
+
+        void backward(Tensor *grad = nulltpr);
     };
-
-    backward();
-
-
-
 }
 
 #endif // NG_TENSOR__
