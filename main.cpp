@@ -23,5 +23,11 @@ int main(int argc, char* argv[]) {
     auto a = new ng::Tensor{aa};
     auto b = new ng::Tensor{bb};
 
+    auto z = a * b;
+    z.backward();
+
+    std::cout << a.grad << std::endl;
+    std::cout << b.grad << std::endl;
+
     return 0;
 }
