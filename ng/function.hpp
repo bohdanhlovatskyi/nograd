@@ -1,6 +1,8 @@
 #ifndef NG_FUNCTION__
 #define NG_FUNCTION__
 
+#include <Eigen/Dense>
+
 namespace ng {
 
     template<typename Func>
@@ -11,8 +13,6 @@ namespace ng {
     public:
         Function(Tensor* tensor, Func op): tensor{tensor}, op{op} {}
     };
-
-    
 }
 
 

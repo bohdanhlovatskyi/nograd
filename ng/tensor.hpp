@@ -6,6 +6,7 @@
 #include <vector>
 
 namespace ng {
+    // this smell make base class for OP
     class Tensor {
     private:
         Eigen::MatrixXd data;
@@ -15,7 +16,7 @@ namespace ng {
 
     public:
         inline Tensor(Eigen::MatrixXd data, bool requires_grad = false) : \
-                         data{data}, grad{nullptr}, ctx{nullptr},
+                         data{data}, grad{nullptr}, depends_on{nullptr},
                          requires_grad{requires_grad} {
             if (requires_grad) {
                 zero_grad();
@@ -26,7 +27,7 @@ namespace ng {
             grad = Tensor(Eigen::MatrixXd{data.rows(), data.cols()}.Zero());
         }
 
-        void backward(Tensor *grad = nulltpr);
+        void backward(Tensor *grad = nullptr);
     };
 }
 

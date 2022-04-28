@@ -5,15 +5,23 @@
 
 #include <Eigen/Dense>
 
+#include "ng/tensor.hpp"
+
 int main(int argc, char* argv[]) {
     (void) argc; (void) argv;
 
-    Eigen::MatrixXd m(2,2);
-    m(0,0) = 3;
-    m(1,0) = 2.5;
-    m(0,1) = -1;
-    m(1,1) = m(1,0) + m(0,1);
-    std::cout << m << std::endl;
+    Eigen::MatrixXd aa(2,1);
+    aa(0,0) = 2.;
+    aa(1,0) = 3.;
+    std::cout << aa << std::endl;
+
+    Eigen::MatrixXd bb(2,1);
+    bb(0,0) = 6.;
+    bb(1,0) = 2.;
+    std::cout << bb << std::endl;
+
+    auto a = new ng::Tensor{aa};
+    auto b = new ng::Tensor{bb};
 
     return 0;
 }
