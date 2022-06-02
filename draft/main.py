@@ -1,6 +1,7 @@
 import numpy as np 
 import matplotlib.pyplot as plt
 
+import copy 
 import torch
 
 import mnist
@@ -10,7 +11,7 @@ DISPLAY_GRAPH = False
 class Tensor:
 
     def __init__(self, data, requires_grad: bool = False, depends_on = None) -> None:
-        self.data = np.float64(data)
+        self.data = data.astype(np.float64)
         self.requires_grad = requires_grad
         self.depends_on = depends_on if depends_on else []
         self.grad: 'Tensor' = None
@@ -21,6 +22,10 @@ class Tensor:
     def shape(self):
         return self.data.shape
 
+    @property
+    def T(self): 
+        return Tensor(self.data.T, self.requires_grad, self.depends_on)
+
     def zero_grad(self):
         self.grad = Tensor(np.zeros_like(self.data))
 
@@ -29,7 +34,6 @@ class Tensor:
         if grad is None or not grad.data.any():
             grad = Tensor(np.ones(self.data.shape))
         
-
         self.grad.data += grad.data
         
         for dep in self.depends_on:
@@ -187,7 +191,7 @@ class SGD:
         for param in self.params:
             param.grad = np.zeros(param.grad.shape)
 
-class Net:
+class MNISTNet:
   def __init__(self):
     self.l1 = Tensor(np.random.rand(784, 128), requires_grad=True)
     self.l2 = Tensor(np.random.rand(128, 10), requires_grad=True)
@@ -195,6 +199,20 @@ class Net:
   def forward(self, x: 'Tensor'):
     return x.dot(self.l1).relu().dot(self.l2).sigmoid()
 
+class XORNet :
+    def __init__(self) -> None:
+        self.l1 = Tensor(np.random.rand(2, 2), requires_grad=True)
+        self.l2 = Tensor(np.random.rand(2, 1), requires_grad=True)
+
+    def forward(self, x: 'Tensor'):
+        # print(x.shape, self.l1.shape, self.l2.shape)
+
+        w = x @ self.l1
+        w = w.sigmoid()
+        w = w @ self.l2
+        w = w.sigmoid()
+
+        return w
 
 def example():
     SHOW_TORCH = True 
@@ -231,27 +249,26 @@ def test():
 
     lll = np.random.rand(5, 4)
     L1 = Tensor(lll, requires_grad=True)
-    l1 = torch.Tensor(lll)
+    l1 = torch.Tensor(copy.deepcopy(lll))
 
     lllll = np.random.rand(4, 2)
     L2 = Tensor(lllll, requires_grad=True)
-    l2 = torch.Tensor(lllll)
+    l2 = torch.Tensor(copy.deepcopy(lllll))
     
     x = x @ l1
-    print("torch: ", x)
+    print("[first mul]: torch: ", x)
     X = Tensor(X.data @ L1.data)
     print("our: ", X.data)
 
     x = torch.relu(x)
-    print("torch", x)
+    print("[first relu]: torch", x)
     X = X.relu()
     print("our: ", X.data)
 
     x = x @ l2
-    print("torch: ", x)
+    print("[second mul]:  torch: ", x)
     X = Tensor(X.data @ L2.data)
     print("our: ", X.data)    
-
 
     ''' softmax is ok
     x = torch.softmax(x, dim=1)
@@ -261,56 +278,83 @@ def test():
     '''
 
     x = torch.sigmoid(x)
-    print("torch: ", x)
+    print("[sig]: torch: ", x)
     X = X.sigmoid()
     print("out: ", X.data)
 
     loss = torch.nn.MSELoss()
-    print("torch: ", loss(x, y))
+    print("[loss]: torch: ", loss(x, y))
     print("our: ", X.mse(Y))
+
+    l, ol = loss(x, y), X.mse(Y)
+    l.backward(torch.ones_like(l))
+    ol.backward()
 
     print()
 
 if __name__ == "__main__":
+    # test() 
+
+    # exit()
     # load dataset
     # mnist.init()
 
-    Xt, yt, Xv, Yv = mnist.load()
+
+    # Xt, yt, Xv, Yv = mnist.load()
 
     # create models
-    model = Net()
+    model = XORNet()
     optim = SGD([model.l1, model.l2], lr=0.0001)
+    Xs = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])
+    ys = np.array([[0,], [1,], [1,], [0,]])
 
     # train loop
     iteration = 0
-    for x, yv in zip(Xt, yt):
-        x, y = Tensor(x.reshape(1, 784)),\
-               Tensor(np.eye(10)[yv, :].reshape(10, 1))
-        
-        x.data /= 255.
-        out = model.forward(x)
+    epochs = 10
+    # for x, yv in zip(Xt, yt):
+    for i in range(epochs):
+ 
+        # x, y = Tensor(x.reshape(1, 784)),\
+        #        Tensor(np.eye(10)[yv, :].reshape(10, 1))            
+        # x.data /= 255.
+        X = Tensor(Xs[i % 4].reshape((1, 2)))
+        y = Tensor(ys[i%4].reshape((1,  1)))
 
+        out = model.forward(X)
         loss = out.mse(y)
-        assert loss.requires_grad
 
+        assert loss.requires_grad
         print(iteration, loss)
+
         if iteration == 0:
             optim.zero_grad()
         loss.backward()
         optim.step()
-        iteration += 1
-        
+
+        iteration += 1            
         if iteration == 20:
             break
 
-    iteration = 0
-    for x, yv in zip(Xv, Yv):
-        x, y = Tensor(x.reshape(1, 784)),\
-               Tensor(np.eye(10)[yv, :].reshape(10, 1))
-        out = model.forward(x)
-        print("prediction: ", out, np.argmax(out))
-        plt.imshow(x.data.reshape(28, 28))
-        plt.show()
-        iteration += 1
-        if iteration == 2:
-            break
+    # iteration = 0
+    # for x, yv in zip(Xv, Yv):
+    #     x, y = Tensor(x.reshape(1, 784)),\
+    #            Tensor(np.eye(10)[yv, :].reshape(10, 1))
+    #     out = model.forward(x)
+    #     print("prediction: ", out, np.argmax(out))
+    #     plt.imshow(x.data.reshape(28, 28))
+    #     plt.show()
+    #     iteration += 1
+    #     if iteration == 2:
+    #         break
+
+    out = model.forward(Tensor(Xs[0]))
+    print(out)
+
+    out = model.forward(Tensor(Xs[1]))
+    print(out)
+    
+    out = model.forward(Tensor(Xs[2]))
+    print(out)
+
+    out = model.forward(Tensor(Xs[3]))
+    print(out)
