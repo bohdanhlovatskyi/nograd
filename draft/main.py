@@ -253,9 +253,16 @@ class Adam():
 
 class MNISTNet:
   def __init__(self):
-    epsilon = 0.12
-    self.l1 = Tensor(np.random.rand(784, 25)*epsilon*2 - epsilon, requires_grad=True)
-    self.l2 = Tensor(np.random.rand(25, 10)*epsilon*2 - epsilon, requires_grad=True)
+    # epsilon = 0.12
+    # self.l1 = Tensor(np.random.rand(784, 25)*epsilon*2 - epsilon, requires_grad=True)
+    # self.l2 = Tensor(np.random.rand(25, 10)*epsilon*2 - epsilon, requires_grad=True)
+    w = torch.empty(784, 25)
+    torch.nn.init.xavier_uniform_(w, gain=torch.nn.init.calculate_gain('relu'))
+    self.l1 = Tensor(np.array(w.data), requires_grad=True)
+
+    w = torch.empty(25, 10)
+    torch.nn.init.xavier_uniform_(w, gain=torch.nn.init.calculate_gain('relu'))
+    self.l2 = Tensor(np.array(w.data), requires_grad=True)
 
   def forward(self, x: 'Tensor'):
     return x.dot(self.l1).sigmoid().dot(self.l2).sigmoid()
@@ -491,21 +498,7 @@ def test_xor():
     print(first_layer_our.grad)
     print(second_layer_our.grad)
 
-if __name__ == "__main__":
-    # test_mse()
-    # test_matmul_and_mse()
-    # test_xor()
-    # exit(0)
-    # test() 
-    # example()
-    # exit()
-    # test_relu()
-    # load dataset
-    # mnist.init()
-
-    # Xt, yt, Xv, Yv = mnist.load()
-
-    # create models
+def fit_xor():
     model = XORNet()
     optim = Adam([model.l1, model.l2])
     Xs = np.array([[0., 0.], [0., 1.], [1., 0.], [1., 1.]])
@@ -531,18 +524,6 @@ if __name__ == "__main__":
         # print(f"iteration #{i}: loss: {loss}\n l1_grad: {model.l1.grad}, l2_grad: {model.l2.grad}, l1_value: {model.l1}, l2_value: {model.l2}")
         optim.step()
 
-    # iteration = 0
-    # for x, yv in zip(Xv, Yv):
-    #     x, y = Tensor(x.reshape(1, 784)),\
-    #            Tensor(np.eye(10)[yv, :].reshape(10, 1))
-    #     out = model.forward(x)
-    #     print("prediction: ", out, np.argmax(out))
-    #     plt.imshow(x.data.reshape(28, 28))
-    #     plt.show()
-    #     iteration += 1
-    #     if iteration == 2:
-    #         break
-
     out = model.forward(Tensor(Xs[0]))
     print(Xs[0], out)
 
@@ -556,38 +537,43 @@ if __name__ == "__main__":
     print(Xs[3], out)
 
 
-# if __name__ == "__main__":
-#     # load dataset
-#     # mnist.init()
+if __name__ == "__main__":
+    # load dataset
+    # mnist.init()
 
-#     Xt, yt, Xv, Yv = mnist.load()
-#     # create model
-#     model = MNISTNet()
-#     optim = SGD([model.l1, model.l2], lr=30)
+    Xt, yt, Xv, Yv = mnist.load()
+    # create model
+    model = MNISTNet()
+    optim = Adam([model.l1, model.l2])
 
-#     # train loop
-#     for iteration in range(50):
-#         x, y = Tensor(Xt),\
-#                Tensor(np.eye(10)[yt, :])
-#         print(y)
-#         out = model.forward(x)
-#         loss = out.mse(y)
-#         assert loss.requires_grad
+    # train loop
+    iteration = 0
+    for epoch in range(1):
+        for x, yv in zip(Xv, Yv):
+            iteration += 1
+            if iteration == 1000:
+                break
+            x, y = Tensor(x.reshape(1, 784)),\
+                Tensor(np.eye(10)[yv, :].reshape(1, 10))
 
-#         print(iteration, loss, np.linalg.norm(model.l1.data), np.linalg.norm(model.l1.grad.data))
-#         optim.zero_grad()
-#         loss.backward()
-#         optim.step()
+            out = model.forward(x)
+            loss = out.mse(y)
+            assert loss.requires_grad
 
-#     iteration = 0
-#     for x, yv in zip(Xv, Yv):
-#         x, y = Tensor(x.reshape(1, 784)),\
-#                Tensor(np.eye(10)[yv, :].reshape(10, 1))
-#         out = model.forward(x)
-#         print("prediction: ", out)
-#         print('true result: ', y)
-#         plt.imshow(x.data.reshape(28, 28))
-#         plt.show()
-#         iteration += 1
-#         if iteration == 10:
-#             break
+            print(loss)
+            optim.zero_grad()
+            loss.backward()
+            optim.step()
+
+    iteration = 0
+    for x, yv in zip(Xv, Yv):
+        x, y = Tensor(x.reshape(1, 784)),\
+               Tensor(np.eye(10)[yv, :].reshape(10, 1))
+        out = model.forward(x)
+        print("prediction: ", out)
+        print('true result: \n', y)
+        plt.imshow(x.data.reshape(28, 28))
+        plt.show()
+        iteration += 1
+        if iteration == 10:
+            break
