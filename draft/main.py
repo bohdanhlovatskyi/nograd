@@ -5,6 +5,9 @@ import matplotlib.pyplot as plt
 import copy 
 import torch
 
+
+from tqdm import tqdm
+
 import mnist
 
 DISPLAY_GRAPH = False
@@ -185,8 +188,9 @@ def _sigmoid(t: 'Tensor') -> 'Tensor':
     return Tensor(data, t.requires_grad, depends_on)
 
 class SGD:
-    def __init__(self, params, lr: float = 0.01) -> None:
+    def __init__(self, params, lr: float = 0.01, alpha: float = 0.01 ) -> None:
         self.lr = lr
+        self.alpha = alpha
         self.params = params # list of tensors
 
     def step(self) -> None:
@@ -208,15 +212,21 @@ class MNISTNet:
 
 class XORNet :
     def __init__(self) -> None:
-        self.l1 = Tensor(np.random.rand(2, 2), requires_grad=True)
-        self.l2 = Tensor(np.random.rand(2, 1), requires_grad=True)
+        scale = 1/max(1., (2+2)/2.)
+        limit = np.sqrt(3.0 * scale)
+        weights = np.random.uniform(-limit, limit, size=(2,2))
+        self.l1 = Tensor(weights, requires_grad=True)
+
+        scale = 1/max(1., (2+1)/2.)
+        limit = np.sqrt(3.0 * scale)
+        weights = np.random.uniform(-limit, limit, size=(2,1))
+        self.l2 = Tensor(weights, requires_grad=True)
 
     def forward(self, x: 'Tensor'):
-
         w = x @ self.l1
-        w = w.softmax()
+        w = w.relu()
         w = w @ self.l2
-        w = w.sigmoid()
+        w = w.relu()
         return w
 
 def example():
@@ -405,108 +415,102 @@ def test_xor():
     print(first_layer_our.grad)
     print(second_layer_our.grad)
 
-
-# if __name__ == "__main__":
-#     # test_mse()
-#     # test_matmul_and_mse()
-#     # test_xor()
-#     # exit(0)
-#     # test() 
-#     # example()
-#     # exit()
-#     # test_relu()
-#     # load dataset
-#     # mnist.init()
-
-
-#     # Xt, yt, Xv, Yv = mnist.load()
-
-#     # create models
-#     model = XORNet()
-#     optim = SGD([model.l1, model.l2], lr=0.1)
-#     Xs = np.array([[0., 0.], [0., 1.], [1., 0.], [1., 1.]])
-#     ys = np.array([[0.,], [1.,], [1.,], [0.,]])
-
-#     # # train loop
-#     epochs = 100000
-#     # # for x, yv in zip(Xt, yt):
-#     for i in range(epochs):
-
-#         # X = Tensor(Xs[i % 4].reshape((1, 2)))
-#         # y = Tensor(ys[i%4].reshape((1,  1)))
-
-#         X = Tensor(Xs)
-#         y = Tensor(ys)
-#         out = model.forward(X)
-#         loss = out.mse(y)
-#         if np.isnan(loss.data):
-#             exit(0)
-
-#         assert loss.requires_grad
-#         # print(i, loss)
-
-#         optim.zero_grad()
-#         loss.backward()
-#         print(f"iteration #{i}: loss: {loss}\n l1_grad: {model.l1.grad}, l2_grad: {model.l2.grad}, l1_value: {model.l1}, l2_value: {model.l2}")
-#         optim.step()
-
-#     # iteration = 0
-#     # for x, yv in zip(Xv, Yv):
-#     #     x, y = Tensor(x.reshape(1, 784)),\
-#     #            Tensor(np.eye(10)[yv, :].reshape(10, 1))
-#     #     out = model.forward(x)
-#     #     print("prediction: ", out, np.argmax(out))
-#     #     plt.imshow(x.data.reshape(28, 28))
-#     #     plt.show()
-#     #     iteration += 1
-#     #     if iteration == 2:
-#     #         break
-
-#     out = model.forward(Tensor(Xs[0]))
-#     print(Xs[0], out)
-
-#     out = model.forward(Tensor(Xs[1]))
-#     print(Xs[1], out)
-    
-#     out = model.forward(Tensor(Xs[2]))
-#     print(Xs[2], out)
-
-#     out = model.forward(Tensor(Xs[3]))
-#     print(Xs[3], out)
-
-
 if __name__ == "__main__":
+    # test_mse()
+    # test_matmul_and_mse()
+    # test_xor()
+    # exit(0)
+    # test() 
+    # example()
+    # exit()
+    # test_relu()
     # load dataset
     # mnist.init()
 
-    Xt, yt, Xv, Yv = mnist.load()
-    # create model
-    model = MNISTNet()
-    optim = SGD([model.l1, model.l2], lr=30)
+    # Xt, yt, Xv, Yv = mnist.load()
 
-    # train loop
-    for iteration in range(50):
-        x, y = Tensor(Xt),\
-               Tensor(np.eye(10)[yt, :])
-        print(y)
-        out = model.forward(x)
+    # create models
+    model = XORNet()
+    optim = SGD([model.l1, model.l2], lr=0.01)
+    Xs = np.array([[0., 0.], [0., 1.], [1., 0.], [1., 1.]])
+    ys = np.array([[0.,], [1.,], [1.,], [0.,]])
+
+    # # train loop
+    epochs = 10000
+    for i in tqdm(range(epochs)):
+        X = Tensor(Xs)
+        y = Tensor(ys)
+        out = model.forward(X)
         loss = out.mse(y)
-        assert loss.requires_grad
+        if np.isnan(loss.data):
+            exit(0)
 
-        print(iteration, loss, np.linalg.norm(model.l1.data), np.linalg.norm(model.l1.grad.data))
+        assert loss.requires_grad
+        # print(i, loss)
+
         optim.zero_grad()
         loss.backward()
+        print(loss)
+        # print(f"iteration #{i}: loss: {loss}\n l1_grad: {model.l1.grad}, l2_grad: {model.l2.grad}, l1_value: {model.l1}, l2_value: {model.l2}")
         optim.step()
 
-    iteration = 0
-    for x, yv in zip(Xv, Yv):
-        x, y = Tensor(x.reshape(1, 784)),\
-               Tensor(np.eye(10)[yv, :].reshape(10, 1))
-        out = model.forward(x)
-        print("prediction: ", out)
-        print('true result: ', y)
-        plt.imshow(x.data.reshape(28, 28))
-        plt.show()
-        iteration += 1
-        if iteration == 10:
-            break
+    # iteration = 0
+    # for x, yv in zip(Xv, Yv):
+    #     x, y = Tensor(x.reshape(1, 784)),\
+    #            Tensor(np.eye(10)[yv, :].reshape(10, 1))
+    #     out = model.forward(x)
+    #     print("prediction: ", out, np.argmax(out))
+    #     plt.imshow(x.data.reshape(28, 28))
+    #     plt.show()
+    #     iteration += 1
+    #     if iteration == 2:
+    #         break
+
+    out = model.forward(Tensor(Xs[0]))
+    print(Xs[0], out)
+
+    out = model.forward(Tensor(Xs[1]))
+    print(Xs[1], out)
+    
+    out = model.forward(Tensor(Xs[2]))
+    print(Xs[2], out)
+
+    out = model.forward(Tensor(Xs[3]))
+    print(Xs[3], out)
+
+
+# if __name__ == "__main__":
+#     # load dataset
+#     # mnist.init()
+
+#     Xt, yt, Xv, Yv = mnist.load()
+#     # create model
+#     model = MNISTNet()
+#     optim = SGD([model.l1, model.l2], lr=30)
+
+#     # train loop
+#     for iteration in range(50):
+#         x, y = Tensor(Xt),\
+#                Tensor(np.eye(10)[yt, :])
+#         print(y)
+#         out = model.forward(x)
+#         loss = out.mse(y)
+#         assert loss.requires_grad
+
+#         print(iteration, loss, np.linalg.norm(model.l1.data), np.linalg.norm(model.l1.grad.data))
+#         optim.zero_grad()
+#         loss.backward()
+#         optim.step()
+
+#     iteration = 0
+#     for x, yv in zip(Xv, Yv):
+#         x, y = Tensor(x.reshape(1, 784)),\
+#                Tensor(np.eye(10)[yv, :].reshape(10, 1))
+#         out = model.forward(x)
+#         print("prediction: ", out)
+#         print('true result: ', y)
+#         plt.imshow(x.data.reshape(28, 28))
+#         plt.show()
+#         iteration += 1
+#         if iteration == 10:
+#             break
