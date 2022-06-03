@@ -544,36 +544,39 @@ if __name__ == "__main__":
     Xt, yt, Xv, Yv = mnist.load()
     # create model
     model = MNISTNet()
-    optim = Adam([model.l1, model.l2])
+    optim = SGD([model.l1, model.l2], lr=0.01)
 
     # train loop
     iteration = 0
     for epoch in range(1):
-        for x, yv in zip(Xv, Yv):
+        for x, y in tqdm(zip(Xt, yt)):
             iteration += 1
-            if iteration == 1000:
-                break
             x, y = Tensor(x.reshape(1, 784)),\
-                Tensor(np.eye(10)[yv, :].reshape(1, 10))
+                Tensor(np.eye(10)[y, :].reshape(1, 10))
 
             out = model.forward(x)
             loss = out.mse(y)
             assert loss.requires_grad
 
-            print(loss)
+            # if iteration % 100:
+            #     print(loss)
             optim.zero_grad()
             loss.backward()
             optim.step()
 
     iteration = 0
-    for x, yv in zip(Xv, Yv):
+    tr = 0
+    for x, y in tqdm(zip(Xv, Yv)):
         x, y = Tensor(x.reshape(1, 784)),\
-               Tensor(np.eye(10)[yv, :].reshape(10, 1))
+               Tensor(np.eye(10)[y, :].reshape(10, 1))
         out = model.forward(x)
-        print("prediction: ", out)
-        print('true result: \n', y)
-        plt.imshow(x.data.reshape(28, 28))
-        plt.show()
+        # print("prediction: ", out)
+        # print('true result: \n', y)
+        # plt.imshow(x.data.reshape(28, 28))
+
+        if np.argmax(out.data) == np.argmax(y.data):
+            tr += 1
+        # plt.show()
         iteration += 1
-        if iteration == 10:
-            break
+
+    print(f"Accuracy: {tr/iteration}")
