@@ -42,6 +42,7 @@ class Tensor:
         
         for dep in self.depends_on:
             backward_grad = dep.backward(grad.data)
+            # backward_grad.data /= np.linalg.norm(backward_grad.data)
             if DISPLAY_GRAPH:
                 print(dep.backward.__name__)
             dep.ctx.backward(Tensor(backward_grad))
@@ -51,9 +52,33 @@ class Tensor:
 
     def __matmul__(self, other: 'Tensor') -> 'Tensor':
         return _matmul(self, other)
+
+    def __add__(self, other: 'Tensor') -> 'Tensor':
+        try:
+            return Tensor(self.data + other.data,
+                requires_grad=self.requires_grad or other.requires_grad)
+        except:
+            return Tensor(self.data + other,
+                requires_grad=self.requires_grad)
+
+    def __sub__(self, other: 'Tensor') -> 'Tensor':
+        return Tensor(self.data - other.data,
+             requires_grad=self.requires_grad or other.requires_grad)
+
+    def __mul__(self, k: float):
+        return Tensor(self.data * k, requires_grad=self.requires_grad)
+
+    def sqrt(self):
+        return Tensor(self.data ** .5, requires_grad=self.requires_grad)
+
+    def __pow__(self, k: float):
+        return Tensor(self.data ** k, requires_grad=self.requires_grad)
     
     def dot(self, other: 'Tensor') -> 'Tensor':
         return _matmul(self, other)
+
+    def div(self, other):
+        return Tensor((other.data ** -1) * self.data, requires_grad=self.requires_grad)
 
     def relu(self):
         return _relu(self)
@@ -195,9 +220,34 @@ class SGD:
 
     def step(self) -> None:
         for parameter in self.params:
-            parameter.data -= parameter.grad * self.lr
+            parameter.data -= (parameter.grad) * self.lr
 
     def zero_grad(self):
+        for param in self.params:
+            param.grad = np.zeros(param.grad.shape)
+
+class Adam():
+  def __init__(self, params, lr=0.001, b1=0.9, b2=0.999, eps=1e-8):
+    self.params = params
+    self.lr, self.b1, self.b2, self.eps, self.t = lr, b1, b2, eps, 0
+
+    self.m = [Tensor(np.zeros(t.shape), requires_grad=False) for t in self.params]
+    self.v = [Tensor(np.zeros(t.shape), requires_grad=False) for t in self.params]
+
+  def step(self):
+    self.t = self.t + 1
+    a = self.lr * ((1.0 - self.b2**self.t)**0.5) / (1.0 - self.b1**self.t)
+    for i, t in enumerate(self.params):
+    #   print(self.m[i], self.b1 , t.grad ,(1.0 - self.b1))
+    #   print(self.m[i] * self.b1 , t.grad * (1.0 - self.b1), type(self.b1))
+      self.m[i] = (self.m[i] * self.b1) + Tensor((t.grad * (1.0 - self.b1)))
+      self.v[i] = (self.v[i] * self.b2) + Tensor((t.grad * t.grad * (1.0 - self.b2)))
+
+    #   t -= self.m[i] * (a / (np.sqrt(self.v[i].data) + self.eps))
+    #   print(self.m[i].div(self.v[i].sqrt() + self.eps) * a)
+      t.data -= (self.m[i].div(self.v[i].sqrt() + self.eps) * a).data
+
+  def zero_grad(self):
         for param in self.params:
             param.grad = np.zeros(param.grad.shape)
 
@@ -210,17 +260,43 @@ class MNISTNet:
   def forward(self, x: 'Tensor'):
     return x.dot(self.l1).sigmoid().dot(self.l2).sigmoid()
 
+'''
+    not fit
+ [[-0.63085294  0.04134798]
+ [ 1.43729246  0.35375822]] [[1.06750965]
+ [0.10315728]] 
+
+    fit
+  [[ 0.83482134  0.22537947]
+ [-0.98029774  0.06367278]] [[ 1.32599998]
+ [-0.67656589]]
+
+    not fit
+   [[-0.50516367  0.67090619]
+ [-0.27756906 -0.37038195]] [[-0.91299701]
+ [ 0.8719759 ]] 
+
+    not fit
+     [[-1.72714949  1.23429477]
+ [-0.36897612  0.56549227]] [[-0.03460193]
+ [-1.33480716]] 
+
+    fit
+ [[-1.14217746 -0.99347883]
+ [ 1.26098573  0.25212276]] [[ 1.04456067]
+ [-1.16296148]] 
+'''
 class XORNet :
     def __init__(self) -> None:
-        scale = 1/max(1., (2+2)/2.)
-        limit = np.sqrt(3.0 * scale)
-        weights = np.random.uniform(-limit, limit, size=(2,2))
-        self.l1 = Tensor(weights, requires_grad=True)
+        w = torch.empty(2, 2)
+        torch.nn.init.xavier_uniform_(w, gain=torch.nn.init.calculate_gain('relu'))
+        self.l1 = Tensor(np.array(w.data), requires_grad=True)
 
-        scale = 1/max(1., (2+1)/2.)
-        limit = np.sqrt(3.0 * scale)
-        weights = np.random.uniform(-limit, limit, size=(2,1))
-        self.l2 = Tensor(weights, requires_grad=True)
+        w = torch.empty(2, 1)
+        torch.nn.init.xavier_uniform_(w, gain=torch.nn.init.calculate_gain('relu'))
+        self.l2 = Tensor(np.array(w.data), requires_grad=True)
+
+        print("\n\n\n\n", self.l1, self.l2, "\n\n\n\n")
 
     def forward(self, x: 'Tensor'):
         w = x @ self.l1
@@ -431,12 +507,12 @@ if __name__ == "__main__":
 
     # create models
     model = XORNet()
-    optim = SGD([model.l1, model.l2], lr=0.01)
+    optim = Adam([model.l1, model.l2])
     Xs = np.array([[0., 0.], [0., 1.], [1., 0.], [1., 1.]])
     ys = np.array([[0.,], [1.,], [1.,], [0.,]])
 
     # # train loop
-    epochs = 10000
+    epochs = 100000
     for i in tqdm(range(epochs)):
         X = Tensor(Xs)
         y = Tensor(ys)
@@ -450,7 +526,8 @@ if __name__ == "__main__":
 
         optim.zero_grad()
         loss.backward()
-        print(loss)
+        if i % 1000 == 0:
+            print(loss)
         # print(f"iteration #{i}: loss: {loss}\n l1_grad: {model.l1.grad}, l2_grad: {model.l2.grad}, l1_value: {model.l1}, l2_value: {model.l2}")
         optim.step()
 
