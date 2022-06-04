@@ -13,6 +13,12 @@ namespace ng {
     // forward declarations
     class Tensor;
     class Function;
+    struct Device;
+    struct CPUDevice;
+
+    // at the time of forward declaration we can access only pointers
+    // and so on
+    inline CPUDevice* getCPUDevice();
 
     struct Function {
         // operation that was performed on a ctx
@@ -30,47 +36,7 @@ namespace ng {
         Eigen::MatrixXd data;
         Tensor* grad;
         bool requires_grad;
-
-        struct Device {
-            virtual Tensor matmul(Tensor& lhs, const Tensor& rhs) = 0;
-
-            inline Device() = default;
-        };
-
-
-        struct CPUDevice : public Device {
-            CPUDevice() = default;
-
-            inline Tensor matmul(Tensor& lhs, const Tensor& rhs) override {
-                std::vector<Function> depends_on;
-                depends_on.reserve(lhs.requires_grad + rhs.requires_grad);
-
-                auto& d = lhs.data * rhs.data;
-                if (lhs.requires_grad) {
-                    depends_on.emplace_back(
-                            &lhs,
-                            [rhs](Eigen::MatrixXd grad) {
-                                return Eigen::MatrixXd{grad * rhs.data.transpose()};
-                            });
-                }
-
-                if (rhs.requires_grad) {
-                    depends_on.emplace_back(
-                            &const_cast<decltype(lhs)>(rhs),
-                            [lhs](Eigen::MatrixXd grad){
-                                return Eigen::MatrixXd{lhs.data.transpose() * grad};
-                            });
-                }
-
-                return Tensor{d,
-                              lhs.requires_grad || rhs.requires_grad,
-                              depends_on,
-                              lhs.dev};
-            }
-        };
-
         Device* dev;
-
 
         inline Tensor() = default;
 
@@ -79,7 +45,7 @@ namespace ng {
         inline Tensor(Eigen::MatrixXd data,
                       bool requires_grad = false,
                       const std::vector<Function>& depends_on = std::vector<Function>{},
-                        Device* dev = new CPUDevice{}) : \
+                        Device* dev = reinterpret_cast<Device *>(getCPUDevice())) : \
                          data{data}, depends_on{depends_on},
                          dev{dev}, requires_grad{requires_grad} {
             if (requires_grad) {
@@ -132,6 +98,47 @@ namespace ng {
         }
 
     };
+
+    struct Device {
+        virtual Tensor matmul(Tensor& lhs, const Tensor& rhs) = 0;
+
+        inline Device() = default;
+    };
+
+    struct CPUDevice : public Device {
+        CPUDevice() = default;
+
+        inline Tensor matmul(Tensor& lhs, const Tensor& rhs) override {
+            std::vector<Function> depends_on;
+            depends_on.reserve(lhs.requires_grad + rhs.requires_grad);
+
+            auto& d = lhs.data * rhs.data;
+            if (lhs.requires_grad) {
+                depends_on.emplace_back(
+                        &lhs,
+                        [rhs](Eigen::MatrixXd grad) {
+                            return Eigen::MatrixXd{grad * rhs.data.transpose()};
+                        });
+            }
+
+            if (rhs.requires_grad) {
+                depends_on.emplace_back(
+                        &const_cast<decltype(lhs)>(rhs),
+                        [lhs](Eigen::MatrixXd grad){
+                            return Eigen::MatrixXd{lhs.data.transpose() * grad};
+                        });
+            }
+
+            return Tensor{d,
+                          lhs.requires_grad || rhs.requires_grad,
+                          depends_on,
+                          lhs.dev};
+        }
+    };
+
+    inline CPUDevice* getCPUDevice() {
+        return new CPUDevice{};
+    }
 };
 
 #endif // NG_TENSOR__
