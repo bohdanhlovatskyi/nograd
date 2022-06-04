@@ -10,16 +10,9 @@ namespace ng {
 
     using func = std::function<Eigen::MatrixXd(Eigen::MatrixXd)>;
 
-    enum class Device {
-        CPU,
-        CUDA
-    };
-
-//    struct Device{};
-//    struct CPU : public Device {};
-
     // forward declarations
     class Tensor;
+    class Function;
 
     struct Function {
         // operation that was performed on a ctx
@@ -32,15 +25,52 @@ namespace ng {
 
     class Tensor {
 
-    private:
-        std::vector<Function> depends_on;
-
     public:
+        std::vector<Function> depends_on;
         Eigen::MatrixXd data;
         Tensor* grad;
         bool requires_grad;
-//        Device dev;
-        Device dev;
+
+        struct Device {
+            virtual Tensor matmul(Tensor& lhs, const Tensor& rhs) = 0;
+
+            inline Device() = default;
+        };
+
+
+        struct CPUDevice : public Device {
+            CPUDevice() = default;
+
+            inline Tensor matmul(Tensor& lhs, const Tensor& rhs) override {
+                std::vector<Function> depends_on;
+                depends_on.reserve(lhs.requires_grad + rhs.requires_grad);
+
+                auto& d = lhs.data * rhs.data;
+                if (lhs.requires_grad) {
+                    depends_on.emplace_back(
+                            &lhs,
+                            [rhs](Eigen::MatrixXd grad) {
+                                return Eigen::MatrixXd{grad * rhs.data.transpose()};
+                            });
+                }
+
+                if (rhs.requires_grad) {
+                    depends_on.emplace_back(
+                            &const_cast<decltype(lhs)>(rhs),
+                            [lhs](Eigen::MatrixXd grad){
+                                return Eigen::MatrixXd{lhs.data.transpose() * grad};
+                            });
+                }
+
+                return Tensor{d,
+                              lhs.requires_grad || rhs.requires_grad,
+                              depends_on,
+                              lhs.dev};
+            }
+        };
+
+        Device* dev;
+
 
         inline Tensor() = default;
 
@@ -49,7 +79,7 @@ namespace ng {
         inline Tensor(Eigen::MatrixXd data,
                       bool requires_grad = false,
                       const std::vector<Function>& depends_on = std::vector<Function>{},
-                        Device dev = Device::CPU) : \
+                        Device* dev = new CPUDevice{}) : \
                          data{data}, depends_on{depends_on},
                          dev{dev}, requires_grad{requires_grad} {
             if (requires_grad) {
@@ -98,39 +128,10 @@ namespace ng {
         template<typename Tn>
         friend inline Tensor operator*(Tn&& lhs, Tn&& rhs)
         {
-            return matmul(std::forward<Tn>(lhs), std::forward<Tn>(rhs));
+            return lhs.dev->matmul(std::forward<Tn>(lhs), std::forward<Tn>(rhs));
         }
 
-//        template<typename Dev,
-//                std::enable_if_t<std::is_same_v<Dev, CPU>, bool> = false>
-        inline friend Tensor matmul(Tensor& lhs, const Tensor& rhs) {
-
-            std::vector<Function> depends_on;
-            depends_on.reserve(lhs.requires_grad + rhs.requires_grad);
-
-            auto& d = lhs.data * rhs.data;
-            if (lhs.requires_grad) {
-                depends_on.emplace_back(
-                        &lhs,
-                        [rhs](Eigen::MatrixXd grad) {
-                            return Eigen::MatrixXd{grad * rhs.data.transpose()};
-                        });
-            }
-
-            if (rhs.requires_grad) {
-                depends_on.emplace_back(
-                        &const_cast<decltype(lhs)>(rhs),
-                        [lhs](Eigen::MatrixXd grad){
-                            return Eigen::MatrixXd{lhs.data.transpose() * grad};
-                        });
-            }
-
-            return Tensor{d,
-                          lhs.requires_grad || rhs.requires_grad,
-                          depends_on,
-                          lhs.dev};
-        }
     };
-}
+};
 
 #endif // NG_TENSOR__
