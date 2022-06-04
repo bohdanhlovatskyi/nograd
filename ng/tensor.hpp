@@ -8,17 +8,11 @@
 
 namespace ng {
 
-    using func = std::function<Eigen::MatrixXd(Eigen::MatrixXd)>;
+    using func = std::function<void(void)>;
 
     // forward declarations
     class Tensor;
     class Function;
-    struct Device;
-    struct CPUDevice;
-
-    // at the time of forward declaration we can access only pointers
-    // and so on
-    inline CPUDevice* getCPUDevice();
 
     struct Function {
         // operation that was performed on a ctx
@@ -33,19 +27,79 @@ namespace ng {
 
     public:
         std::vector<Function> depends_on;
-        Eigen::MatrixXd data;
-        Tensor* grad;
         bool requires_grad;
+
+        struct Device {
+            inline Device() = default;
+
+            void* data;
+            void* grad;
+
+            virtual void T() = 0;
+            virtual void zero_grad() = 0;
+            virtual Tensor matmul(Tensor& lhs, const Tensor& rhs) = 0;
+        };
+
+        struct CPUDevice : public Device {
+            Eigen::MatrixXd data;
+            Eigen::MatrixXd grad;
+
+            CPUDevice() = default;
+            CPUDevice(Eigen::MatrixXd d) : data{d} {};
+
+            inline Eigen::MatrixXd& getData() {
+                return data;
+            }
+
+            inline void zero_grad() override {
+                grad = Eigen::MatrixXd().setZero(data.rows(), data.cols());
+            }
+
+            inline void T() {
+                auto& dlhs = reinterpret_cast<CPUDevice*>(this)->data;
+                dlhs = dlhs.transpose();
+            }
+
+            Tensor matmul(Tensor& lhs, const Tensor& rhs) override {
+                std::vector<Function> depends_on;
+                depends_on.reserve(lhs.requires_grad + rhs.requires_grad);
+
+                auto& dlhs = reinterpret_cast<CPUDevice*>(lhs.dev)->data;
+                auto& drhs = reinterpret_cast<CPUDevice*>(rhs.dev)->data;
+
+                auto& d = dlhs * drhs;
+                if (lhs.requires_grad) {
+                    depends_on.emplace_back(
+                            &lhs,
+                            [drhs](Eigen::MatrixXd grad) {
+                                return Eigen::MatrixXd{grad * drhs.transpose()};
+                            });
+                }
+
+                if (rhs.requires_grad) {
+                    // TODO: those should perform on tensors
+                    depends_on.emplace_back(
+                            &const_cast<decltype(lhs)>(rhs),
+                            [dlhs](Eigen::MatrixXd grad){
+                                return Eigen::MatrixXd{dlhs.transpose() * grad};
+                            });
+                }
+
+                return Tensor{lhs.requires_grad || rhs.requires_grad,
+                              depends_on,
+                              new CPUDevice{d}};
+            }
+        };
+
         Device* dev;
 
         inline Tensor() = default;
 
         // TODO: this makes copy for now
-        inline Tensor(Eigen::MatrixXd data,
-                      bool requires_grad = false,
+        inline Tensor(bool requires_grad = false,
                       const std::vector<Function>& depends_on = std::vector<Function>{},
-                        Device* dev = reinterpret_cast<Device *>(getCPUDevice())) : \
-                         data{data}, depends_on{depends_on},
+                      Device* dev = reinterpret_cast<Device *>(new CPUDevice{})) : \
+                         depends_on{depends_on},
                          dev{dev}, requires_grad{requires_grad} {
             if (requires_grad) {
                 zero_grad();
@@ -53,38 +107,36 @@ namespace ng {
         };
 
         inline Tensor& T() {
-            data = data.transpose();
+            this->dev->T();
             return *this;
         }
 
+        // TODO : make this one a general one
         friend inline std::ostream& operator<<(std::ostream& os, const Tensor& t) {
-            return os << t.data;
+            return os << reinterpret_cast<CPUDevice*>(t.dev)->data;
         }
 
         inline void zero_grad() {
-            grad = new Tensor(Eigen::MatrixXd{data.rows(), data.cols()});
+            dev->zero_grad();
         }
 
         inline void backward(Tensor* grad = nullptr) {
-            if (grad == nullptr) {
-                grad = new Tensor(
-                        Eigen::MatrixXd().setOnes(data.rows(), data.cols())
-                );
+            if (dev->grad == nullptr) {
+                dev->grad = Eigen::MatrixXd().setOnes(dev->data.rows(), dev->data.cols());
             }
 
-            if (this->grad == nullptr) {
+            if (dev->grad == nullptr) {
                 std::cerr << "Could not perform backward on a tensor that does not require gradient" << std::endl;
                 exit(1);
             }
 
-            assert(this->grad != nullptr);
-            assert(this->grad->data.size() == grad->data.size());
 
-            this->grad->data += grad->data;
+            // TODO: add method add for two matrices
+            dev->add(dev->grad, grad);
 
             for (auto &dep : depends_on) {
                 func f{dep.op};
-                auto gr = grad->data;
+                auto gr = grad->dev->data;
                 auto r = f(gr);
                 dep.ctx->backward(new Tensor{r});
             }
@@ -98,46 +150,6 @@ namespace ng {
 
     };
 
-    struct Device {
-        inline Device() = default;
-
-        virtual Tensor matmul(Tensor& lhs, const Tensor& rhs) = 0;
-    };
-
-    struct CPUDevice : public Device {
-        CPUDevice() = default;
-
-        inline Tensor matmul(Tensor& lhs, const Tensor& rhs) override {
-            std::vector<Function> depends_on;
-            depends_on.reserve(lhs.requires_grad + rhs.requires_grad);
-
-            auto& d = lhs.data * rhs.data;
-            if (lhs.requires_grad) {
-                depends_on.emplace_back(
-                        &lhs,
-                        [rhs](Eigen::MatrixXd grad) {
-                            return Eigen::MatrixXd{grad * rhs.data.transpose()};
-                        });
-            }
-
-            if (rhs.requires_grad) {
-                depends_on.emplace_back(
-                        &const_cast<decltype(lhs)>(rhs),
-                        [lhs](Eigen::MatrixXd grad){
-                            return Eigen::MatrixXd{lhs.data.transpose() * grad};
-                        });
-            }
-
-            return Tensor{d,
-                          lhs.requires_grad || rhs.requires_grad,
-                          depends_on,
-                          lhs.dev};
-        }
-    };
-
-    inline CPUDevice* getCPUDevice() {
-        return new CPUDevice{};
-    }
 };
 
 #endif // NG_TENSOR__
