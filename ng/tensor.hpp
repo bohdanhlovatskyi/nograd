@@ -40,7 +40,6 @@ namespace ng {
 
         inline Tensor() = default;
 
-        //                      Device* dev = new CPU{}) : \
         // TODO: this makes copy for now
         inline Tensor(Eigen::MatrixXd data,
                       bool requires_grad = false,
@@ -100,9 +99,9 @@ namespace ng {
     };
 
     struct Device {
-        virtual Tensor matmul(Tensor& lhs, const Tensor& rhs) = 0;
-
         inline Device() = default;
+
+        virtual Tensor matmul(Tensor& lhs, const Tensor& rhs) = 0;
     };
 
     struct CPUDevice : public Device {
