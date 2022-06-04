@@ -3,29 +3,31 @@
 
 #include <Eigen/Dense>
 
+#include <type_traits>
 #include <vector>
 
-
 namespace ng {
+
     using func = std::function<Eigen::MatrixXd(Eigen::MatrixXd)>;
 
-    class Device {};
-    class CPU : public Device {};
+    enum class Device {
+        CPU,
+        CUDA
+    };
+
+//    struct Device{};
+//    struct CPU : public Device {};
 
     // forward declarations
-    struct Function;
     class Tensor;
-
-} // ng
-
-
-namespace ng {
 
     struct Function {
         // operation that was performed on a ctx
         // instantiation of a function is a context
         Tensor* ctx;
         func op;
+
+        Function(Tensor* ctx, func op) : ctx{ctx}, op{op} {};
     };
 
     class Tensor {
@@ -37,15 +39,17 @@ namespace ng {
         Eigen::MatrixXd data;
         Tensor* grad;
         bool requires_grad;
+//        Device dev;
         Device dev;
 
         inline Tensor() = default;
 
+        //                      Device* dev = new CPU{}) : \
         // TODO: this makes copy for now
         inline Tensor(Eigen::MatrixXd data,
                       bool requires_grad = false,
                       const std::vector<Function>& depends_on = std::vector<Function>{},
-                      Device dev = CPU{}) : \
+                        Device dev = Device::CPU) : \
                          data{data}, depends_on{depends_on},
                          dev{dev}, requires_grad{requires_grad} {
             if (requires_grad) {
@@ -97,23 +101,28 @@ namespace ng {
             return matmul(std::forward<Tn>(lhs), std::forward<Tn>(rhs));
         }
 
+//        template<typename Dev,
+//                std::enable_if_t<std::is_same_v<Dev, CPU>, bool> = false>
         inline friend Tensor matmul(Tensor& lhs, const Tensor& rhs) {
-            // TODO: add resize with emplace here
+
             std::vector<Function> depends_on;
+            depends_on.reserve(lhs.requires_grad + rhs.requires_grad);
 
             auto& d = lhs.data * rhs.data;
             if (lhs.requires_grad) {
-                depends_on.push_back(Function{&lhs, [rhs](Eigen::MatrixXd grad){
-                    return Eigen::MatrixXd{grad * rhs.data.transpose()};
-                }});
+                depends_on.emplace_back(
+                        &lhs,
+                        [rhs](Eigen::MatrixXd grad) {
+                            return Eigen::MatrixXd{grad * rhs.data.transpose()};
+                        });
             }
 
             if (rhs.requires_grad) {
-                depends_on.push_back(
-                        Function{&const_cast<decltype(lhs)>(rhs),
-                                 [lhs](Eigen::MatrixXd grad){
+                depends_on.emplace_back(
+                        &const_cast<decltype(lhs)>(rhs),
+                        [lhs](Eigen::MatrixXd grad){
                             return Eigen::MatrixXd{lhs.data.transpose() * grad};
-                        }});
+                        });
             }
 
             return Tensor{d,
