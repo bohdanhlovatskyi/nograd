@@ -2,6 +2,8 @@
 
 It is the smallest and most stupid ~~deep~~ learning framework.
 
+Draft is written in Python : 
+
 Authors (team):
 - Bohdan Hlovatskyi: https://github.com/bohdanhlovatskyi
 - Yaroslav Romanus: https://github.com/yarkoslav
