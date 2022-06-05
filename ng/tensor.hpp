@@ -8,13 +8,13 @@
 
 namespace ng {
 
-    using func = std::function<void(void)>;
-
     // forward declarations
     class Tensor;
     class Function;
 
     struct Function {
+        using func = std::function<void(void)>;
+
         // operation that was performed on a ctx
         // instantiation of a function is a context
         Tensor* ctx;
@@ -29,8 +29,8 @@ namespace ng {
         std::vector<Function> depends_on;
         bool requires_grad;
 
-        struct Device {
-            inline Device() = default;
+        struct tensor {
+            inline tensor() = default;
 
             void* data;
             void* grad;
@@ -40,12 +40,12 @@ namespace ng {
             virtual Tensor matmul(Tensor& lhs, const Tensor& rhs) = 0;
         };
 
-        struct CPUDevice : public Device {
+        struct CPUTensor : public tensor {
             Eigen::MatrixXd data;
             Eigen::MatrixXd grad;
 
-            CPUDevice() = default;
-            CPUDevice(Eigen::MatrixXd d) : data{d} {};
+            CPUTensor() = default;
+            CPUTensor(Eigen::MatrixXd d) : data{d} {};
 
             inline Eigen::MatrixXd& getData() {
                 return data;
@@ -56,7 +56,7 @@ namespace ng {
             }
 
             inline void T() {
-                auto& dlhs = reinterpret_cast<CPUDevice*>(this)->data;
+                auto& dlhs = reinterpret_cast<CPUTensor*>(this)->data;
                 dlhs = dlhs.transpose();
             }
 
@@ -64,8 +64,8 @@ namespace ng {
                 std::vector<Function> depends_on;
                 depends_on.reserve(lhs.requires_grad + rhs.requires_grad);
 
-                auto& dlhs = reinterpret_cast<CPUDevice*>(lhs.dev)->data;
-                auto& drhs = reinterpret_cast<CPUDevice*>(rhs.dev)->data;
+                auto& dlhs = reinterpret_cast<CPUTensor*>(lhs.dev)->data;
+                auto& drhs = reinterpret_cast<CPUTensor*>(rhs.dev)->data;
 
                 auto& d = dlhs * drhs;
                 if (lhs.requires_grad) {
