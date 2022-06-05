@@ -5,7 +5,7 @@
 
 #include <Eigen/Dense>
 
-#include "ng/tensor2.hpp"
+#include "ng/tensor.hpp"
 
 int main(int argc, char* argv[]) {
     (void) argc; (void) argv;
@@ -20,16 +20,17 @@ int main(int argc, char* argv[]) {
     bb(1,0) = 2.;
     std::cout << bb << std::endl;
 
-    ng::Tensor a{aa.transpose(), true};
-    ng::Tensor b{bb, true};
+    auto a = ng::CPUTensor{aa.transpose(), true};
+    auto b = ng::CPUTensor{bb, true};
 
     auto z = a*b;
-    std::cout << z->data() << std::endl;
 
-//    z.backward();
+    std::cout << z.data << " " << z.requires_grad << std::endl;
 
-    std::cout << a.grad() << std::endl;
-    std::cout << b.grad() << std::endl;
+    z.backward();
+
+    std::cout << (*a.grad).data << std::endl;
+    std::cout << (*b.grad).data << std::endl;
 
     return 0;
 }
