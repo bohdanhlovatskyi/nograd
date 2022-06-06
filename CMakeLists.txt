@@ -47,6 +47,20 @@ if (NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Release)
 endif ()
 
+
+option(DOWNLOAD_MNIST "Download the MNIST dataset from the internet" ON)
+if (DOWNLOAD_MNIST)
+	message(STATUS "Downloading MNIST dataset")
+	execute_process(
+			COMMAND python ${CMAKE_CURRENT_LIST_DIR}/load_mnist.py
+			-d ${CMAKE_BINARY_DIR}/../data
+			ERROR_VARIABLE DOWNLOAD_ERROR)
+	if (DOWNLOAD_ERROR)
+		message(FATAL_ERROR "Error downloading MNIST dataset: ${DOWNLOAD_ERROR}")
+	endif()
+endif()
+
+
 # Warnings as errors should be imported here -- do not move this line
 include(cmake/CompilerWarnings.cmake)
 
@@ -55,10 +69,10 @@ include(cmake/CompilerWarnings.cmake)
 ##########################################################
 
 #! Project main executable source compilation
-add_executable(${PROJECT_NAME} main.cpp)
+add_executable(${PROJECT_NAME} main.cpp ng/tensor.hpp ng/optim.hpp)
 
 #! Put path to your project headers
-target_include_directories(${PROJECT_NAME} PRIVATE options_parser)
+target_include_directories(${PROJECT_NAME} PRIVATE ng models)
 
 #! Add external packages
 # options_parser requires boost::program_options library
@@ -69,6 +83,10 @@ target_link_libraries(${PROJECT_NAME} Boost::program_options Boost::system)
 find_package (Eigen3 3.3 REQUIRED NO_MODULE)
 target_include_directories(${PROJECT_NAME} PRIVATE ${Eigen_INCLUDE_DIR})
 target_link_libraries (${PROJECT_NAME} Eigen3::Eigen)
+
+find_package(Torch REQUIRED)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+target_link_libraries(${PROJECT_NAME} "${TORCH_LIBRARIES}")
 						
 ##########################################################
 # Fixed CMakeLists.txt part 

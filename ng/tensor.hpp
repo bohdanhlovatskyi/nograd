@@ -149,6 +149,20 @@ namespace ng {
             return *dynamic_cast<CPUTensor *>(lhs.matmul(&lhs, &rhs));
         }
 
+        inline CPUTensor& relu() {
+            auto mask = data.unaryExpr([](double x){ return x > 0 ? 1 : 0; });
+            std::vector<Function<CPUTensor>> depends_on;
+            depends_on.reserve(requires_grad);
+
+            if (requires_grad) {
+                depends_on.emplace_back(
+                        this,
+                        [](Eigen::MatrixXd grad) {
+                            return Eigen::MatrixXd{};
+                        });
+            }
+        }
+
     };
 };
 

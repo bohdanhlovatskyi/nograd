@@ -4,6 +4,9 @@
 
 test/build
 
+data
+*.pkl
+
 # Compiled Object files
 *.slo
 *.lo
