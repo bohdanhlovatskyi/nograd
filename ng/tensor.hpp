@@ -167,8 +167,11 @@ namespace ng {
 
         inline CPUTensor& mse(CPUTensor& tnsr) {
             auto tmp = tnsr.data - data;
-            auto prod = tmp.transpose() * tmp;
-            auto res = prod.rowwise().mean();
+            auto prod = tmp.array() * tmp.array();
+            // TODO : extremely not sure that this one will work with batches
+            auto res = Eigen::MatrixXd{}.setZero(1, 1);
+            auto rs = Eigen::MatrixXd{prod}.mean();
+            res(0, 0) = rs;
 
             std::vector<Function<CPUTensor>> depends_on;
             depends_on.reserve(tnsr.requires_grad + requires_grad);
@@ -178,7 +181,7 @@ namespace ng {
                         this,
                         [&tmp](Eigen::MatrixXd grad) {
                             // TODO : add normalization here
-                            return -2*grad*tmp;
+                            return Eigen::MatrixXd{-2*grad.array() * tmp.array()};
                         });
             }
 

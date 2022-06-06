@@ -69,10 +69,10 @@ include(cmake/CompilerWarnings.cmake)
 ##########################################################
 
 #! Project main executable source compilation
-add_executable(${PROJECT_NAME} main.cpp ng/tensor.hpp ng/optim.hpp)
+add_executable(${PROJECT_NAME} main.cpp config_reader/config_reader.cpp)
 
 #! Put path to your project headers
-target_include_directories(${PROJECT_NAME} PRIVATE ng models)
+target_include_directories(${PROJECT_NAME} PRIVATE ng models config_reader)
 
 #! Add external packages
 # options_parser requires boost::program_options library

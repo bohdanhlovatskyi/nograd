@@ -6,6 +6,8 @@
 #include <Eigen/Dense>
 #include <torch/torch.h>
 
+#include "config_reader/config_reader.hpp"
+
 #include "ng/tensor.hpp"
 #include "ng/optim.hpp"
 #include "models/mnist_net.h"
@@ -34,12 +36,6 @@ void mul_example() {
     std::cout << (*b.grad).data << std::endl;
 }
 
-constexpr char* kDataRoot = "./data";
-constexpr size_t kTrainBatchSize = 1;
-constexpr size_t kTestBatchSize = 1;
-constexpr size_t kNumberOfEpochs = 1;
-constexpr size_t kLogInterval = 1;
-
 Eigen::MatrixXd torch_tensor_to_eigen(torch::Tensor& data) {
     float* rd = data.data_ptr<float>();
 
@@ -50,12 +46,18 @@ Eigen::MatrixXd torch_tensor_to_eigen(torch::Tensor& data) {
 }
 
 int main(int argc, char* argv[]) {
-    (void) argc; (void) argv;
+    std::string filename{"index.cfg"};
+    if(argc == 2) {
+        filename = argv[1];
+    }
+
+    std::ifstream config_stream(filename);
+    const auto config = conf(config_stream);
 
     auto net = new MnistNet{};
     auto optim = new ng::optim::SGD{std::vector<ng::CPUTensor *>{net->l1, net->l2}};
 
-    auto train_dataset = torch::data::datasets::MNIST(kDataRoot)
+    auto train_dataset = torch::data::datasets::MNIST(config.kDataRoot)
             .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
             .map(torch::data::transforms::Stack<>());
 
@@ -66,7 +68,7 @@ int main(int argc, char* argv[]) {
 
     auto train_loader =
             torch::data::make_data_loader<torch::data::samplers::SequentialSampler>(
-                    std::move(train_dataset), kTrainBatchSize);
+                    std::move(train_dataset), config.kTrainBatchSize);
 
 //    auto test_loader =
 //            torch::data::make_data_loader(std::move(test_dataset), kTestBatchSize);
@@ -83,6 +85,10 @@ int main(int argc, char* argv[]) {
         auto loss = res.mse(*(new ng::CPUTensor{e}));
 
         std::cout << loss.data << std::endl;
+
+        optim->zero_grad();
+        loss.backward();
+        optim->step();
     }
 
     return 0;
