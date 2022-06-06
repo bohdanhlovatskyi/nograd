@@ -1,7 +1,7 @@
 from cmath import nan
 import numpy as np 
 import matplotlib.pyplot as plt
-
+from scipy import signal
 import copy
 from pyparsing import str_type 
 import torch
@@ -88,6 +88,9 @@ class Tensor:
     
     def pool(self, kernel_shape, stride=(1, 1), mode="max") -> 'Tensor':
         return _pool(self, kernel_shape, stride, mode)
+    
+    def flatten(self) -> 'Tensor':
+        return _flatten(self)
 
 class Func:
 
@@ -147,7 +150,8 @@ def _softmax(t: 'Tensor') -> 'Tensor':
     return Tensor(data, t.requires_grad, depends_on)
 
 def _cross_entropy(t1: 'Tensor', t2: 'Tensor') -> 'Tensor':
-    data = -t2.data @ np.log(t1.data.T)
+    epsilon = 0.000001
+    data = -t2.data @ np.log(t1.data.T + epsilon)
     depends_on = []
 
     if t1.requires_grad:
@@ -164,7 +168,10 @@ def _MSE(t1: 'Tensor', t2: 'Tensor') -> 'Tensor':
 
     if t1.requires_grad:
         def MSE_fn(grad: np.ndarray):
-            return -2*grad*temp/t1.shape[1]
+            to_divide = 1.0
+            for i in range(1, len(t1.shape)):
+                to_divide *= t1.shape[i]
+            return -2*grad*temp/(to_divide)
 
         depends_on.append(Func(t1, MSE_fn))
     
@@ -215,16 +222,12 @@ def _conv2D(tensor: 'Tensor', filt: 'Tensor', bias: 'Tensor', padding="same", st
     out_h = int(((h_prev - kh + (2*ph)) / (stride[0])) + 1)
     out_w = int(((w_prev - kw + (2*pw)) / (stride[1])) + 1)
     output_conv = np.zeros((m, out_h, out_w, c_new))
-    m_range = np.arange(0, m)
 	
-    for i in range(out_h):
-        for j in range(out_w):
-            for f in range(c_new):
-                output_conv[m_range, i, j, f] = np.sum(np.multiply(
-                    data[m_range,
-                    i*(stride[0]):kh+(i*(stride[0])),
-                    j*(stride[1]):kw+(j*(stride[1]))],
-                    filt.data[:, :, :, f]), axis=(1, 2, 3)) + bias.data[0, 0, 0, f]
+    for i in range(m):
+        for j in range(c_new):
+            for f in range(c_prev):
+                output_conv[i, :, :, j] += signal.convolve2d(data[i, :, :, f], filt.data[::-1, ::-1, f, j], mode="valid")
+            output_conv[i, :, :, j] += bias.data[0, 0, 0, j]
     
     depends_on = []
 
@@ -240,10 +243,10 @@ def _conv2D(tensor: 'Tensor', filt: 'Tensor', bias: 'Tensor', padding="same", st
         def filt_grad_fn(grad: np.ndarray):
             dfilt = np.zeros_like(filt.data)
             for i in range(m):
-                for h in range(out_h):
-                    for w in range(out_w):
-                        for f in range(c_new):
-                            dfilt[:, :, :, f] += data[i,h*(stride[0]):(h*(stride[0]))+kh, w*(stride[1]):(w*(stride[1]))+kw, :] * grad[i, h, w, f]
+                for j in range(c_new):
+                    for f in range(c_prev):
+                        dfilt[:, :, f, j] += signal.convolve2d(data[i, :, :, f], grad[i, ::-1, ::-1, j], mode="valid")
+
             return dfilt
         
         depends_on.append(Func(filt, filt_grad_fn))
@@ -252,10 +255,9 @@ def _conv2D(tensor: 'Tensor', filt: 'Tensor', bias: 'Tensor', padding="same", st
         def tensor_grad_fn(grad: np.ndarray):
             dx = np.zeros(data.shape)
             for i in range(m):
-                for h in range(out_h):
-                    for w in range(out_w):
-                        for f in range(c_new):
-                            dx[i, h*(stride[0]):(h*(stride[0]))+kh, w*(stride[1]):(w*(stride[1]))+kw, :] += grad[i, h, w, f] * filt.data[:, :, :, f]
+                for j in range(c_new):
+                    for f in range(c_prev):
+                        dx[i, :, :, f] += signal.convolve2d(grad[i, :, :, j], filt.data[:, :, f, j])
             
             if padding == "same":
                 dx = dx[:, ph:-ph, pw:-pw, :]
@@ -285,7 +287,42 @@ def _pool(tensor, kernel_shape, stride=(1, 1), mode="max") -> 'Tensor':
 
     depends_on = []
 
+    if tensor.requires_grad:
+        def pool_grad_fn(grad: np.ndarray):
+            dx = np.zeros_like(data)
+            sh, sw = stride
+            for i in range(m):
+                for h in range(out_h):
+                    for w in range(out_w):
+                        for f in range(c_prev):
+                            if mode == "max":
+                                tmp = data[i, h*sh:kh+(h*sh), w*sw:kw+(w*sw), f]
+                                mask = (tmp == np.max(tmp))
+                                dx[i, h*sh:(h*sh)+kh, w*sw:(w*sw)+kw, f] += grad[i, h, w, f] * mask
+                            if mode == "avg":
+                                dx[i, h*sh:(h*sh)+kh, w*sw:(w*sw)+kw, f] += (grad[i, h, w, f]) / (kh*kw) 
+            
+            return dx
+        
+        depends_on.append(Func(tensor, pool_grad_fn))
+    
     return Tensor(output_pool, tensor.requires_grad, depends_on)
+
+def _flatten(tensor) -> 'Tensor':
+    m, h, w, c = tensor.shape
+    data = tensor.data
+    data = data.reshape(m, h*w*c)
+
+    depends_on = []
+
+    if tensor.requires_grad:
+        def flatten_grad_fn(grad: np.ndarray):
+            dx = grad.reshape(m, h, w, c)
+            return dx
+        
+        depends_on.append(Func(tensor, flatten_grad_fn))
+    
+    return Tensor(data, tensor.requires_grad, depends_on)
 
 class SGD:
     def __init__(self, params, lr: float = 0.01, alpha: float = 0.001 ) -> None:
@@ -314,6 +351,36 @@ class MNISTNet:
   def forward(self, x: 'Tensor'):
     x.data /= 255.0
     return x.dot(self.l1).relu().dot(self.l2).softmax()
+
+class MNISTConvNet:
+    def __init__(self):
+        w = torch.empty(3, 3, 1, 32)
+        torch.nn.init.xavier_uniform_(w, gain=torch.nn.init.calculate_gain('conv2d'))
+        self.filter1 = Tensor(np.array(w.data), requires_grad=True)
+
+        w = torch.empty(1, 1, 1, 32)
+        torch.nn.init.xavier_uniform_(w, gain=torch.nn.init.calculate_gain('conv2d'))
+        self.bias1 = Tensor(np.array(w.data), requires_grad=True)
+
+        w = torch.empty(3, 3, 32, 64)
+        torch.nn.init.xavier_uniform_(w, gain=torch.nn.init.calculate_gain('conv2d'))
+        self.filter2 = Tensor(np.array(w.data), requires_grad=True)
+
+        w = torch.empty(1, 1, 1, 64)
+        torch.nn.init.xavier_uniform_(w, gain=torch.nn.init.calculate_gain('conv2d'))
+        self.bias2 = Tensor(np.array(w.data), requires_grad=True)
+
+        w = torch.empty(3136, 128)
+        torch.nn.init.xavier_uniform_(w, gain=torch.nn.init.calculate_gain('relu'))
+        self.l1 = Tensor(np.array(w.data), requires_grad=True)
+
+        w = torch.empty(128, 10)
+        torch.nn.init.xavier_uniform_(w, gain=torch.nn.init.calculate_gain('relu'))
+        self.l2 = Tensor(np.array(w.data), requires_grad=True)
+    
+    def forward(self, x: 'Tensor'):
+        x.data /= 255.0
+        return x.conv2D(self.filter1, self.bias1).relu().pool((2, 2), (2, 2)).conv2D(self.filter2, self.bias2).relu().pool((2, 2), (2, 2)).flatten().dot(self.l1).dot(self.l2).softmax()
 
 def validation(model, Xv, Yv):
     iteration = 0
@@ -363,6 +430,51 @@ def Mnist(load: bool = False):
         validation(model, Xv, Yv)
         print(loss)
 
+def validation_convolution(model, Xv, Yv):
+    iteration = 0
+    tr = 0
+    for x, y in tqdm(zip(Xv, Yv)):
+        x, y = Tensor(x.reshape(1, 28, 28, 1)),\
+               Tensor(np.eye(10)[y, :].reshape(10, 1))
+        out = model.forward(x)
+
+        if np.argmax(out.data) == np.argmax(y.data):
+            tr += 1
+        iteration += 1
+
+    print(f"Accuracy: {tr/iteration}")
+
+def Mnist_convolution(load: bool = False):
+    # load dataset
+    if load:
+        mnist.init()
+
+    # Accuracy: 0.8727 for 10 epochs
+    Xt, yt, Xv, Yv = mnist.load()
+    # create model
+    model = MNISTConvNet()
+    optim = SGD([model.filter1, model.bias1, model.filter2, model.bias2, model.l1, model.l2], lr=0.001, alpha=0.01)
+
+    # train loop
+    iteration = 0
+    for epoch in range(15):
+        loss = None
+        for x, y in tqdm(zip(Xt, yt)):
+            iteration += 1
+            x, y = Tensor(x.reshape(1, 28, 28, 1)),\
+                Tensor(np.eye(10)[y, :].reshape(1, 10))
+
+            out = model.forward(x)
+            loss = out.cross_entropy(y)
+            assert loss.requires_grad
+
+            optim.zero_grad()
+            loss.backward()
+            optim.step()
+
+        validation_convolution(model, Xv, Yv)
+        print(loss)
+
 def test_forward_conv():
     truth = np.random.rand(1, 1, 3, 3)
     m = torch.nn.Conv2d(1, 1, 3)
@@ -380,8 +492,8 @@ def test_forward_conv():
     torch_loss.backward()
     # print(out)
     # print(m.bias.grad)
-    # print(tens.grad)
-    print(m.weight.grad)
+    print(tens.grad)
+    # print(m.weight.grad)
 
     to_our = l.reshape(1, 5, 5, 1)
     tens = Tensor(to_our, requires_grad=True)
@@ -397,8 +509,8 @@ def test_forward_conv():
     our_loss.backward()
     # print(out.data)
     # print(bias.grad.data)
-    # print(tens.grad.data)
-    print(filt.grad.data)
+    print(tens.grad.data)
+    # print(filt.grad.data)
 
 def test_pool():
     truth = np.random.rand(1, 2, 2, 2)
@@ -412,7 +524,8 @@ def test_pool():
     torch_loss = loss(out, torch_truth)
     print(torch_loss)
     torch_loss.backward()
-    print(out)
+    # print(out)
+    print(tens.grad)
 
     to_our = l.transpose(0, 2, 3, 1)
     tens = Tensor(to_our, requires_grad=True)
@@ -422,9 +535,38 @@ def test_pool():
     our_loss = out.mse(truth)
     print(our_loss)
     our_loss.backward()
-    print(out)
+    # print(out)
+    print(tens.grad.data)
+
+def test_flatten():
+    truth = np.random.rand(8)
+    m = torch.nn.Flatten()
+    l = np.random.rand(1, 2, 2, 2)
+    tens = torch.Tensor(l)
+    tens.requires_grad = True
+    out = m(tens)
+    torch_truth = torch.Tensor(truth)
+    loss = torch.nn.MSELoss()
+    torch_loss = loss(out, torch_truth)
+    print(torch_loss)
+    torch_loss.backward()
+    # print(out)
+    print(tens.grad)
+
+    to_our = l
+    tens = Tensor(to_our, requires_grad=True)
+    out = tens.flatten()
+    truth = truth.reshape(1, 8)
+    truth = Tensor(truth)
+    our_loss = out.mse(truth)
+    print(our_loss)
+    our_loss.backward()
+    # print(out)
+    print(tens.grad.data)
 
 if __name__ == "__main__":
     # Mnist()
     # test_forward_conv()
-    test_pool()
+    # test_pool()
+    # test_flatten()
+    Mnist_convolution()
