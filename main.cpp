@@ -73,10 +73,16 @@ int main(int argc, char* argv[]) {
 
     for (auto& td : *train_loader) {
         auto data = torch_tensor_to_eigen(td.data);
-//        auto target = torch_tensor_to_eigen2(td.target);
+        auto target = td.target;
+        int cls_id = target[0].item<int>();
+
+        Eigen::MatrixXd e{Eigen::MatrixXd().setZero(1, 10)};
+        e(0, cls_id) = 1;
 
         auto res = net->forward(*(new ng::CPUTensor{data}));
-        std::cout << res.data << std::endl;
+        auto loss = res.mse(*(new ng::CPUTensor{e}));
+
+        std::cout << loss.data << std::endl;
     }
 
     return 0;

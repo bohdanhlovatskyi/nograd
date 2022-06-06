@@ -165,6 +165,25 @@ namespace ng {
             return *this;
         }
 
+        inline CPUTensor& mse(CPUTensor& tnsr) {
+            auto tmp = tnsr.data - data;
+            auto prod = tmp.transpose() * tmp;
+            auto res = prod.rowwise().mean();
+
+            std::vector<Function<CPUTensor>> depends_on;
+            depends_on.reserve(tnsr.requires_grad + requires_grad);
+
+            if (requires_grad) {
+                depends_on.emplace_back(
+                        this,
+                        [&tmp](Eigen::MatrixXd grad) {
+                            // TODO : add normalization here
+                            return -2*grad*tmp;
+                        });
+            }
+
+            return *(new CPUTensor{res, requires_grad, nullptr, depends_on});
+        }
     };
 };
 
