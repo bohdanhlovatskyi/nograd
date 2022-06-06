@@ -40,6 +40,15 @@ constexpr size_t kTestBatchSize = 1;
 constexpr size_t kNumberOfEpochs = 1;
 constexpr size_t kLogInterval = 1;
 
+Eigen::MatrixXd torch_tensor_to_eigen(torch::Tensor& data) {
+    float* rd = data.data_ptr<float>();
+
+    // 28 * 28 = 784 * 1
+    Eigen::Map<Eigen::MatrixXf> E(rd,
+                                  1, data.size(2) * data.size(3));
+    return Eigen::MatrixXd{E.cast<double>()};
+}
+
 int main(int argc, char* argv[]) {
     (void) argc; (void) argv;
 
@@ -49,24 +58,25 @@ int main(int argc, char* argv[]) {
     auto train_dataset = torch::data::datasets::MNIST(kDataRoot)
             .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
             .map(torch::data::transforms::Stack<>());
-    const size_t train_dataset_size = train_dataset.size().value();
+
+//    auto test_dataset = torch::data::datasets::MNIST(
+//            kDataRoot, torch::data::datasets::MNIST::Mode::kTest)
+//            .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
+//            .map(torch::data::transforms::Stack<>());
+
     auto train_loader =
             torch::data::make_data_loader<torch::data::samplers::SequentialSampler>(
                     std::move(train_dataset), kTrainBatchSize);
 
-    auto test_dataset = torch::data::datasets::MNIST(
-            kDataRoot, torch::data::datasets::MNIST::Mode::kTest)
-            .map(torch::data::transforms::Normalize<>(0.1307, 0.3081))
-            .map(torch::data::transforms::Stack<>());
-    const size_t test_dataset_size = test_dataset.size().value();
-    auto test_loader =
-            torch::data::make_data_loader(std::move(test_dataset), kTestBatchSize);
-
+//    auto test_loader =
+//            torch::data::make_data_loader(std::move(test_dataset), kTestBatchSize);
 
     for (auto& td : *train_loader) {
-        double* data = td.data.data_ptr<double>();
-        Eigen::Map<Eigen::MatrixXd> E(data, td.data.size(0), td.data.size(1));
-        std::cout << E << std::endl;
+        auto data = torch_tensor_to_eigen(td.data);
+//        auto target = torch_tensor_to_eigen2(td.target);
+
+        auto res = net->forward(*(new ng::CPUTensor{data}));
+        std::cout << res.data << std::endl;
     }
 
     return 0;

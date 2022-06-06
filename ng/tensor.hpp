@@ -158,9 +158,11 @@ namespace ng {
                 depends_on.emplace_back(
                         this,
                         [](Eigen::MatrixXd grad) {
-                            return Eigen::MatrixXd{};
+                            return (grad.array() < 0).select(0, grad);
                         });
             }
+
+            return *this;
         }
 
     };
