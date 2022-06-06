@@ -165,13 +165,32 @@ namespace ng {
             return *this;
         }
 
+        inline CPUTensor& sigmoid() {
+            auto mask = data.unaryExpr([](double val){ return std::exp(val) / (1 + std::exp(val)); });
+
+            std::vector<Function<CPUTensor>> depends_on;
+            depends_on.reserve(requires_grad);
+
+            if (requires_grad) {
+                depends_on.emplace_back(
+                        this,
+                        [&](Eigen::MatrixXd grad) {
+                            return grad.array() * data.array() * (1 - data.array());
+                        });
+            }
+
+            return *this;
+        }
+
         inline CPUTensor& mse(CPUTensor& tnsr) {
             auto tmp = tnsr.data - data;
             auto prod = tmp.array() * tmp.array();
-            // TODO : extremely not sure that this one will work with batches
+            // TODO : will work only for scalar loss
             auto res = Eigen::MatrixXd{}.setZero(1, 1);
             auto rs = Eigen::MatrixXd{prod}.mean();
             res(0, 0) = rs;
+
+            std::cout << "[LOSS MATRIX]: " << res << std::endl;
 
             std::vector<Function<CPUTensor>> depends_on;
             depends_on.reserve(tnsr.requires_grad + requires_grad);
@@ -179,9 +198,12 @@ namespace ng {
             if (requires_grad) {
                 depends_on.emplace_back(
                         this,
-                        [&tmp](Eigen::MatrixXd grad) {
+                        [tmp](Eigen::MatrixXd gr) {
                             // TODO : add normalization here
-                            return Eigen::MatrixXd{-2*grad.array() * tmp.array()};
+                            std::cout << gr.array() << std::endl;
+                            std::cout << Eigen::MatrixXd{-2*gr.array()} << std::endl;
+                            std::cout << tmp.array() << std::endl;
+                            return Eigen::MatrixXd{-2*gr.array()*tmp.array()};
                         });
             }
 

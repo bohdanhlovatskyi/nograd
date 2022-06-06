@@ -46,7 +46,7 @@ Eigen::MatrixXd torch_tensor_to_eigen(torch::Tensor& data) {
 }
 
 int main(int argc, char* argv[]) {
-    std::string filename{"index.cfg"};
+    std::string filename{"../index.cfg"};
     if(argc == 2) {
         filename = argv[1];
     }

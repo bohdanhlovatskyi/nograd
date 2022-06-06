@@ -33,7 +33,7 @@ struct MnistNet {
         x = x * const_cast<const ng::CPUTensor&>(*l1);
         x = x.relu();
         x = x * const_cast<const ng::CPUTensor&>(*l2);
-        x = x.relu();
+        x = x.sigmoid();
 
         return x;
     }
